@@ -29,9 +29,12 @@ const usuariosRoutes = require('./routes/usuariosRoutes');
 // ============================================
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = process.env.PORT || 3000;
 
 app.disable('x-powered-by');
+
+// Confiar en Nginx como proxy inverso
+app.set('trust proxy', 1);
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173'
