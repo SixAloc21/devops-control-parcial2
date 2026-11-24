@@ -1,0 +1,27 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Bases de datos
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Reportes y compilaciones
+playwright-report/
+test-results/
+coverage/
+dist/
+
+# Logs
+*.log
+
+# Archivos temporales
+.DS_Store
+Thumbs.db

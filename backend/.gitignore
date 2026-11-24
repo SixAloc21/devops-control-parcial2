@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Base de datos SQLite
+database/*.db
+database/*.db-shm
+database/*.db-wal
+
+# Logs y archivos temporales
+*.log
+coverage/
