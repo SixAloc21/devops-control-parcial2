@@ -1,0 +1,95 @@
+
+name: DevOps Control - CI/CD
+
+on:
+  push:
+    branches: [main]
+
+  pull_request:
+    branches: [main]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas-automatizadas:
+    name: Build y 40 pruebas Playwright
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
+    env:
+      CI: "true"
+      TEST_JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+
+    steps:
+      # 1. Descargar el repositorio
+      - name: Descargar código
+        uses: actions/checkout@v7
+
+      # 2. Configurar Node.js
+      - name: Configurar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      # 3. Verificar secreto de testing
+      - name: Verificar configuración JWT
+        run: |
+          if [ -z "$TEST_JWT_SECRET" ]; then
+            echo "ERROR: Falta TEST_JWT_SECRET"
+            exit 1
+          fi
+
+      # 4. Instalar backend
+      - name: Instalar dependencias del backend
+        working-directory: backend
+        run: npm ci
+
+      # 5. Instalar frontend
+      - name: Instalar dependencias del frontend
+        working-directory: frontend
+        run: npm ci
+
+      # 6. Comprobar compilación React
+      - name: Compilar frontend
+        working-directory: frontend
+        run: npm run build
+
+      # 7. Instalar Chromium y dependencias
+      - name: Instalar navegador Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # 8. Ejecutar todas las pruebas
+      - name: Ejecutar 40 pruebas automatizadas
+        working-directory: frontend
+        run: npx playwright test
+
+      # 9. Guardar los resultados
+      - name: Subir reportes de Playwright
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: devops-control-playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 14
+          if-no-files-found: warn
+
+      # 10. Confirmar éxito
+      - name: Confirmar calidad del proyecto
+        if: success()
+        run: |
+          echo "=================================="
+          echo " DEVOPS CONTROL - CI EXITOSA"
+          echo "=================================="
+          echo "Build y pruebas completados"
+          echo "Proyecto apto para fase de despliegue"
