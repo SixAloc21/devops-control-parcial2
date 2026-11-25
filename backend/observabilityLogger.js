@@ -6,7 +6,7 @@
 // CONSOLA DOCKER + OPENTELEMETRY
 // ============================================
 
-const { logs } = require('@opentelemetry/api-logs');
+const { logs } = require('@opentelemetry/api');
 
 const logger = logs.getLogger(
   'devops-control-backend',
