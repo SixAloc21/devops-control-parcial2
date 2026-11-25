@@ -87,43 +87,58 @@ jobs:
           echo "40 pruebas Playwright aprobadas"
           echo "Proyecto apto para construir Docker"
 
+  
   # ==========================================
-  # JOB 2 - CONSTRUIR IMAGENES DOCKER
+  # JOB 2 - BUILD AND PUSH DOCKER IMAGES
   # ==========================================
   construir-docker:
-    name: Build Docker Images
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
-    # No se ejecuta si las pruebas fallan
     needs: pruebas-automatizadas
 
+    # Publicar solo en push a main, nunca en pull requests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     steps:
-      - name: Descargar código
+      - name: Descargar repositorio
         uses: actions/checkout@v7
 
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Construir imagen del backend
-        run: |
-          docker build \
-            -f backend/Dockerfile \
-            -t devops-control-backend:${{ github.sha }} \
-            ./backend
+      - name: Iniciar sesión en Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Construir imagen del frontend
-        run: |
-          docker build \
-            -f frontend/Dockerfile \
-            -t devops-control-frontend:${{ github.sha }} \
-            ./frontend
+      - name: Construir y publicar backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            gaelnj17/devops-control-backend:latest
+            gaelnj17/devops-control-backend:${{ github.sha }}
 
-      - name: Confirmar construcción
+      - name: Construir y publicar frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            gaelnj17/devops-control-frontend:latest
+            gaelnj17/devops-control-frontend:${{ github.sha }}
+
+      - name: Confirmar publicación
         run: |
           echo "=================================="
-          echo " DEVOPS CONTROL - DOCKER OK"
+          echo " DEVOPS CONTROL - DOCKER HUB"
           echo "=================================="
-          docker image ls
-          echo "Ambas imagenes construidas"
+          echo "Backend y frontend publicados"
           echo "Commit: ${{ github.sha }}"
+
