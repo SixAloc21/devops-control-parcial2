@@ -3,19 +3,13 @@
 
 // ============================================
 // DEVOPS CONTROL - OPENTELEMETRY
-// INSTRUMENTACION DE TRAZAS HTTP
+// TRAZAS HTTP + METRICAS OTLP
 // ============================================
 
-// No iniciar telemetria durante las pruebas
-// ni cuando no este habilitada explicitamente.
 if (
   process.env.OTEL_ENABLED === 'true' &&
   process.env.NODE_ENV !== 'test'
 ) {
-  // ==========================================
-  // IMPORTACIONES
-  // ==========================================
-
   const { NodeSDK } = require('@opentelemetry/sdk-node');
 
   const {
@@ -26,45 +20,73 @@ if (
     OTLPTraceExporter
   } = require('@opentelemetry/exporter-trace-otlp-proto');
 
+  const {
+    OTLPMetricExporter
+  } = require('@opentelemetry/exporter-metrics-otlp-proto');
+
+  const {
+    PeriodicExportingMetricReader
+  } = require('@opentelemetry/sdk-metrics');
+
   // ==========================================
-  // CONFIGURACION DE OPENOBSERVE
+  // VARIABLES PRIVADAS
   // ==========================================
 
-  const endpoint = process.env.OTEL_TRACES_ENDPOINT;
+  const tracesEndpoint = process.env.OTEL_TRACES_ENDPOINT;
+  const metricsEndpoint = process.env.OTEL_METRICS_ENDPOINT;
   const authHeader = process.env.OTEL_AUTH_HEADER;
 
-  // Validar endpoint
-  if (!endpoint) {
-    console.error(
-      '[OpenTelemetry] Falta OTEL_TRACES_ENDPOINT'
-    );
-    process.exit(1);
-  }
+  if (!tracesEndpoint || !metricsEndpoint || !authHeader) {
+    console.error(JSON.stringify({
+      evento: 'OPENTELEMETRY_CONFIG_ERROR',
+      mensaje: 'Faltan variables OTLP'
+    }));
 
-  // Validar autenticacion
-  if (!authHeader) {
-    console.error(
-      '[OpenTelemetry] Falta OTEL_AUTH_HEADER'
-    );
     process.exit(1);
   }
 
   // ==========================================
-  // CONFIGURACION DEL SDK
+  // EXPORTADOR DE TRAZAS
+  // ==========================================
+
+  const traceExporter = new OTLPTraceExporter({
+    url: tracesEndpoint,
+    headers: {
+      Authorization: authHeader
+    }
+  });
+
+  // ==========================================
+  // EXPORTADOR DE METRICAS
+  // ==========================================
+
+  const metricExporter = new OTLPMetricExporter({
+    url: metricsEndpoint,
+    headers: {
+      Authorization: authHeader
+    }
+  });
+
+  const metricReader = new PeriodicExportingMetricReader({
+    exporter: metricExporter,
+
+    // Enviar metricas cada 15 segundos
+    exportIntervalMillis: 15000,
+
+    exportTimeoutMillis: 10000
+  });
+
+  // ==========================================
+  // INICIALIZAR SDK
   // ==========================================
 
   const sdk = new NodeSDK({
     serviceName: 'devops-control-backend',
 
-    // Exportar trazas mediante OTLP/HTTP
-    traceExporter: new OTLPTraceExporter({
-      url: endpoint,
-      headers: {
-        Authorization: authHeader
-      }
-    }),
+    traceExporter,
 
-    // Instrumentacion automatica
+    metricReaders: [metricReader],
+
     instrumentations: [
       getNodeAutoInstrumentations({
         '@opentelemetry/instrumentation-fs': {
@@ -74,15 +96,14 @@ if (
     ]
   });
 
-  // ==========================================
-  // INICIAR OPENTELEMETRY
-  // ==========================================
-
   sdk.start();
 
   console.log(JSON.stringify({
     evento: 'OPENTELEMETRY_INITIALIZED',
     servicio: 'devops-control-backend',
+    trazas: 'ENABLED',
+    metricas: 'ENABLED',
+    intervaloMetricasMs: 15000,
     estado: 'OK'
   }));
 
@@ -90,7 +111,7 @@ if (
   // CIERRE CONTROLADO
   // ==========================================
 
-  process.on('SIGTERM', () => {
+  process.once('SIGTERM', () => {
     Promise.resolve(sdk.shutdown())
       .catch(error => {
         console.error(

@@ -2,30 +2,41 @@
 require('dotenv').config();
 
 // ============================================
-// PARCIAL 2 - DEVOPS
+// PARCIAL 2 - DEVOPS CONTROL
 // BACKEND NODE.JS + EXPRESS + SQLITE
+// OPENTELEMETRY - LOGS Y METRICAS HTTP
 // ============================================
 
+// ============================================
 // IMPORTACIONES
+// ============================================
+
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
+// OpenTelemetry
+const { metrics } = require('@opentelemetry/api');
+
+// Base de datos SQLite
 const db = require('./database/db');
 
+// Controladores
 const {
   login,
   perfil
 } = require('./controllers/authController');
 
+// Middleware de autenticacion
 const {
   verificarToken
 } = require('./middleware/authMiddleware');
 
+// Rutas de usuarios
 const usuariosRoutes = require('./routes/usuariosRoutes');
 
 // ============================================
-// CONFIGURACIÓN GENERAL
+// CONFIGURACION GENERAL
 // ============================================
 
 const app = express();
@@ -36,16 +47,54 @@ app.disable('x-powered-by');
 // Confiar en Nginx como proxy inverso
 app.set('trust proxy', 1);
 
+// Configuracion CORS
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173'
 }));
 
+// Limitar tamaño de solicitudes JSON
 app.use(express.json({
   limit: '10kb'
 }));
 
 // ============================================
-// MIDDLEWARE DE LOGS HTTP
+// METRICAS OPENTELEMETRY
+// ============================================
+
+const meter = metrics.getMeter(
+  'devops-control-http',
+  '1.0.0'
+);
+
+// Contador de solicitudes HTTP
+const httpRequests = meter.createCounter(
+  'devops_http_requests_total',
+  {
+    description: 'Total de solicitudes HTTP',
+    unit: '1'
+  }
+);
+
+// Histograma de tiempos de respuesta
+const httpDuration = meter.createHistogram(
+  'devops_http_request_duration_ms',
+  {
+    description: 'Duracion de solicitudes HTTP',
+    unit: 'ms'
+  }
+);
+
+// Contador de errores HTTP
+const httpErrors = meter.createCounter(
+  'devops_http_errors_total',
+  {
+    description: 'Total de respuestas HTTP de error',
+    unit: '1'
+  }
+);
+
+// ============================================
+// MIDDLEWARE DE LOGS Y METRICAS HTTP
 // ============================================
 
 app.use((req, res, next) => {
@@ -55,14 +104,54 @@ app.use((req, res, next) => {
     const duracionMs =
       Number(process.hrtime.bigint() - inicio) / 1e6;
 
+    const statusCode = res.statusCode;
+
+    // Usar patrones de ruta en lugar de IDs
+    // para evitar cardinalidad excesiva.
+    let endpoint = 'unmatched';
+
+    if (
+      req.route &&
+      typeof req.route.path === 'string'
+    ) {
+      endpoint = `${req.baseUrl || ''}${req.route.path}`;
+    } else if (
+      req.path === '/health' ||
+      req.path === '/'
+    ) {
+      endpoint = req.path;
+    }
+
+    // Atributos de cada peticion HTTP
+    const atributos = {
+      'http.request.method': req.method,
+      'http.route': endpoint,
+      'http.response.status_code': statusCode
+    };
+
+    // Registrar total de peticiones
+    httpRequests.add(1, atributos);
+
+    // Registrar latencia
+    httpDuration.record(duracionMs, atributos);
+
+    // Registrar respuestas HTTP con error
+    if (statusCode >= 400) {
+      httpErrors.add(1, atributos);
+    }
+
+    // ========================================
+    // LOG JSON ESTRUCTURADO
+    // ========================================
+
     const log = {
       timestamp: new Date().toISOString(),
       metodo: req.method,
       endpoint: req.path,
-      statusCode: res.statusCode,
+      statusCode,
       duracionMs: Number(duracionMs.toFixed(2)),
       accion: `${req.method} ${req.path}`,
-      resultado: res.statusCode >= 400
+      resultado: statusCode >= 400
         ? 'ERROR'
         : 'SUCCESS'
     };
@@ -79,9 +168,13 @@ app.use((req, res, next) => {
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
+
+  // Evitar bloqueos durante Playwright
   limit: process.env.NODE_ENV === 'test' ? 100 : 5,
+
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+
   message: {
     success: false,
     message: 'Demasiados intentos. Inténtalo más tarde.'
@@ -89,10 +182,10 @@ const loginLimiter = rateLimit({
 });
 
 // ============================================
-// AUTENTICACIÓN
+// AUTENTICACION
 // ============================================
 
-// POST - Iniciar sesión
+// POST - Iniciar sesion
 app.post('/api/auth/login', loginLimiter, login);
 
 // GET - Consultar perfil autenticado
@@ -118,7 +211,7 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================
-// INFORMACIÓN DEL BACKEND
+// INFORMACION DEL BACKEND
 // ============================================
 
 app.get('/', (req, res) => {
@@ -148,6 +241,7 @@ if (process.env.NODE_ENV !== 'production') {
         tabla: 'usuarios',
         totalUsuarios: resultado.total
       });
+
     } catch (error) {
       next(error);
     }
@@ -205,10 +299,15 @@ const server = app.listen(PORT, () => {
   console.log(`Health: http://localhost:${PORT}/health`);
   console.log('Base de datos: SQLite');
   console.log('CRUD: /api/usuarios');
+  console.log('OpenTelemetry: Metricas HTTP preparadas');
   console.log('====================================');
 });
 
 server.on('error', (error) => {
-  console.error('No se pudo iniciar el servidor:', error.message);
+  console.error(
+    'No se pudo iniciar el servidor:',
+    error.message
+  );
+
   process.exitCode = 1;
 });
