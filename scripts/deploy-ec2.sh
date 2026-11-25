@@ -27,10 +27,10 @@ echo "Commit solicitado: $DEPLOY_TAG"
 
 # Guardar el codigo local sin descartar modificaciones de EC2.
 # El compose de produccion permanece separado.
-git fetch origin main
+sudo -u ubuntu git -C "$PROJECT_DIR" fetch origin main
 
 # Solo desplegar un commit que pertenezca a main.
-git merge-base --is-ancestor "$DEPLOY_TAG" origin/main
+sudo -u ubuntu git -C "$PROJECT_DIR" merge-base --is-ancestor "$DEPLOY_TAG" origin/main
 
 # Descargar las imagenes exactas del commit aprobado.
 export DEPLOY_TAG
