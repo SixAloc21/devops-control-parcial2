@@ -4,7 +4,7 @@ require('dotenv').config();
 // ============================================
 // PARCIAL 2 - DEVOPS CONTROL
 // BACKEND NODE.JS + EXPRESS + SQLITE
-// OPENTELEMETRY - LOGS Y METRICAS HTTP
+// OPENTELEMETRY - LOGS, METRICAS Y TRAZAS
 // ============================================
 
 // ============================================
@@ -15,8 +15,13 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
-// OpenTelemetry
+// OpenTelemetry - Metricas
 const { metrics } = require('@opentelemetry/api');
+
+// OpenTelemetry - Logs estructurados
+const {
+  registrarEvento
+} = require('./observabilityLogger');
 
 // Base de datos SQLite
 const db = require('./database/db');
@@ -106,8 +111,8 @@ app.use((req, res, next) => {
 
     const statusCode = res.statusCode;
 
-    // Usar patrones de ruta en lugar de IDs
-    // para evitar cardinalidad excesiva.
+    // Evitar IDs y otros valores variables
+    // como etiquetas de metricas.
     let endpoint = 'unmatched';
 
     if (
@@ -122,41 +127,45 @@ app.use((req, res, next) => {
       endpoint = req.path;
     }
 
-    // Atributos de cada peticion HTTP
+    // Atributos de las metricas HTTP
     const atributos = {
       'http.request.method': req.method,
       'http.route': endpoint,
       'http.response.status_code': statusCode
     };
 
-    // Registrar total de peticiones
+    // Total de solicitudes
     httpRequests.add(1, atributos);
 
-    // Registrar latencia
+    // Tiempo de respuesta
     httpDuration.record(duracionMs, atributos);
 
-    // Registrar respuestas HTTP con error
+    // Respuestas con error HTTP
     if (statusCode >= 400) {
       httpErrors.add(1, atributos);
     }
 
     // ========================================
-    // LOG JSON ESTRUCTURADO
+    // REGISTRO JSON ESTRUCTURADO
     // ========================================
 
+    // El endpoint del log utiliza el patron
+    // conocido, evitando registrar rutas con
+    // datos sensibles en la telemetria.
     const log = {
       timestamp: new Date().toISOString(),
       metodo: req.method,
-      endpoint: req.path,
+      endpoint,
       statusCode,
       duracionMs: Number(duracionMs.toFixed(2)),
-      accion: `${req.method} ${req.path}`,
+      accion: `${req.method} ${endpoint}`,
       resultado: statusCode >= 400
         ? 'ERROR'
         : 'SUCCESS'
     };
 
-    console.log(JSON.stringify(log));
+    // Docker + OpenTelemetry OTLP
+    registrarEvento(log, statusCode >= 500);
   });
 
   next();
@@ -264,13 +273,23 @@ app.use((req, res) => {
 // ============================================
 
 app.use((err, req, res, next) => {
-  console.error(JSON.stringify({
+  // Log interno sin incluir cuerpos HTTP,
+  // contrasenas, tokens ni datos personales.
+  registrarEvento({
     timestamp: new Date().toISOString(),
     tipo: 'ERROR_INTERNO',
     metodo: req.method,
-    endpoint: req.path,
-    mensaje: err.message
-  }));
+    endpoint: 'internal_error',
+    statusCode:
+      err.status === 400 || err.status === 413
+        ? err.status
+        : 500,
+    resultado: 'ERROR'
+  }, true);
+
+  // ========================================
+  // ERRORES DE VALIDACION JSON
+  // ========================================
 
   if (err.status === 400 || err.status === 413) {
     return res.status(err.status).json({
@@ -280,6 +299,10 @@ app.use((err, req, res, next) => {
         : 'JSON inválido'
     });
   }
+
+  // ========================================
+  // ERROR INTERNO DEL SERVIDOR
+  // ========================================
 
   return res.status(500).json({
     success: false,
@@ -299,7 +322,7 @@ const server = app.listen(PORT, () => {
   console.log(`Health: http://localhost:${PORT}/health`);
   console.log('Base de datos: SQLite');
   console.log('CRUD: /api/usuarios');
-  console.log('OpenTelemetry: Metricas HTTP preparadas');
+  console.log('OpenTelemetry: Logs, Metricas y Trazas');
   console.log('====================================');
 });
 

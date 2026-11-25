@@ -3,13 +3,17 @@
 
 // ============================================
 // DEVOPS CONTROL - OPENTELEMETRY
-// TRAZAS HTTP + METRICAS OTLP
+// TRAZAS + METRICAS + LOGS OTLP
 // ============================================
 
 if (
   process.env.OTEL_ENABLED === 'true' &&
   process.env.NODE_ENV !== 'test'
 ) {
+  // ==========================================
+  // IMPORTACIONES
+  // ==========================================
+
   const { NodeSDK } = require('@opentelemetry/sdk-node');
 
   const {
@@ -25,28 +29,42 @@ if (
   } = require('@opentelemetry/exporter-metrics-otlp-proto');
 
   const {
+    OTLPLogExporter
+  } = require('@opentelemetry/exporter-logs-otlp-proto');
+
+  const {
     PeriodicExportingMetricReader
   } = require('@opentelemetry/sdk-metrics');
 
+  const {
+    BatchLogRecordProcessor
+  } = require('@opentelemetry/sdk-logs');
+
   // ==========================================
-  // VARIABLES PRIVADAS
+  // CONFIGURACION PRIVADA
   // ==========================================
 
   const tracesEndpoint = process.env.OTEL_TRACES_ENDPOINT;
   const metricsEndpoint = process.env.OTEL_METRICS_ENDPOINT;
+  const logsEndpoint = process.env.OTEL_LOGS_ENDPOINT;
   const authHeader = process.env.OTEL_AUTH_HEADER;
 
-  if (!tracesEndpoint || !metricsEndpoint || !authHeader) {
+  if (
+    !tracesEndpoint ||
+    !metricsEndpoint ||
+    !logsEndpoint ||
+    !authHeader
+  ) {
     console.error(JSON.stringify({
       evento: 'OPENTELEMETRY_CONFIG_ERROR',
-      mensaje: 'Faltan variables OTLP'
+      mensaje: 'Faltan variables de configuracion OTLP'
     }));
 
     process.exit(1);
   }
 
   // ==========================================
-  // EXPORTADOR DE TRAZAS
+  // TRAZAS
   // ==========================================
 
   const traceExporter = new OTLPTraceExporter({
@@ -57,7 +75,7 @@ if (
   });
 
   // ==========================================
-  // EXPORTADOR DE METRICAS
+  // METRICAS
   // ==========================================
 
   const metricExporter = new OTLPMetricExporter({
@@ -69,15 +87,30 @@ if (
 
   const metricReader = new PeriodicExportingMetricReader({
     exporter: metricExporter,
-
-    // Enviar metricas cada 15 segundos
     exportIntervalMillis: 15000,
-
     exportTimeoutMillis: 10000
   });
 
   // ==========================================
-  // INICIALIZAR SDK
+  // LOGS
+  // ==========================================
+
+  const logExporter = new OTLPLogExporter({
+    url: logsEndpoint,
+    headers: {
+      Authorization: authHeader,
+      'stream-name': 'devops_backend_logs'
+    }
+  });
+
+  const logProcessor = new BatchLogRecordProcessor({
+    exporter: logExporter,
+    scheduledDelayMillis: 1000,
+    exportTimeoutMillis: 10000
+  });
+
+  // ==========================================
+  // INICIAR SDK
   // ==========================================
 
   const sdk = new NodeSDK({
@@ -85,7 +118,13 @@ if (
 
     traceExporter,
 
-    metricReaders: [metricReader],
+    metricReaders: [
+      metricReader
+    ],
+
+    logRecordProcessors: [
+      logProcessor
+    ],
 
     instrumentations: [
       getNodeAutoInstrumentations({
@@ -103,7 +142,7 @@ if (
     servicio: 'devops-control-backend',
     trazas: 'ENABLED',
     metricas: 'ENABLED',
-    intervaloMetricasMs: 15000,
+    logs: 'ENABLED',
     estado: 'OK'
   }));
 
@@ -112,12 +151,11 @@ if (
   // ==========================================
 
   process.once('SIGTERM', () => {
-    Promise.resolve(sdk.shutdown())
-      .catch(error => {
-        console.error(
-          '[OpenTelemetry] Error al cerrar:',
-          error.message
-        );
-      });
+    Promise.resolve(sdk.shutdown()).catch(error => {
+      console.error(
+        '[OpenTelemetry] Error al cerrar:',
+        error.message
+      );
+    });
   });
 }
