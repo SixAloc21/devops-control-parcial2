@@ -11,6 +11,10 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.83.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.301.2",
+    "@opentelemetry/sdk-node": "^0.301.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.2.0",
     "cors": "^2.8.6",

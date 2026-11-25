@@ -1,7 +1,7 @@
 
 # ============================================
 # DEVOPS CONTROL - BACKEND
-# Node.js + Express + SQLite
+# Node.js + Express + SQLite + OpenTelemetry
 # ============================================
 
 FROM node:24-bookworm-slim
@@ -35,5 +35,5 @@ ENV DB_PATH=/app/data/usuarios.db
 
 EXPOSE 3000
 
-# Ejecutar Express
-CMD ["node", "server.js"]
+# Cargar OpenTelemetry antes de Express
+CMD ["node", "--require", "./telemetry.js", "server.js"]
