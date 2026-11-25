@@ -20,33 +20,44 @@ fi
 cd "$PROJECT_DIR"
 
 echo "=================================="
-echo " DEVOPS CONTROL - DEPLOY"
+echo " DEVOPS CONTROL - DEPLOY AUTOMATICO"
 echo "=================================="
 
 echo "Commit solicitado: $DEPLOY_TAG"
 
-# Guardar el codigo local sin descartar modificaciones de EC2.
-# El compose de produccion permanece separado.
+# Descargar informacion del repositorio como ubuntu.
 sudo -u ubuntu git -C "$PROJECT_DIR" fetch origin main
 
-# Solo desplegar un commit que pertenezca a main.
-sudo -u ubuntu git -C "$PROJECT_DIR" merge-base --is-ancestor "$DEPLOY_TAG" origin/main
+# Impedir que una ejecucion antigua despliegue
+# encima de un commit mas reciente.
+LATEST_SHA=$(sudo -u ubuntu git -C "$PROJECT_DIR" rev-parse origin/main)
 
-# Descargar las imagenes exactas del commit aprobado.
+if [ "$LATEST_SHA" != "$DEPLOY_TAG" ]; then
+  echo "ERROR: El commit solicitado ya no es el ultimo de main"
+  exit 1
+fi
+
+# Actualizar archivos sin descartar modificaciones locales.
+sudo -u ubuntu git -C "$PROJECT_DIR" merge --ff-only "$DEPLOY_TAG"
+
+# Utilizar las imagenes exactas aprobadas por Playwright.
 export DEPLOY_TAG
 
+echo "Descargando imagenes Docker..."
 docker compose -f "$COMPOSE_FILE" pull
 
-# Reutilizar el volumen persistente de SQLite.
-docker compose -f "$COMPOSE_FILE" up -d --no-build --remove-orphans
+echo "Actualizando contenedores..."
+docker compose -f "$COMPOSE_FILE" up -d --no-build --remove-orphans --wait
 
-# Comprobar el backend.
+echo "Verificando backend y frontend..."
+
 docker compose -f "$COMPOSE_FILE" exec -T backend \
   node -e "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
-# Comprobar el frontend a traves de Nginx.
 curl --fail --silent --show-error \
   http://127.0.0.1:8080/health > /dev/null
 
-echo "DEPLOY_SUCCESS"
-echo "Commit: $DEPLOY_TAG"
+echo "=================================="
+echo " DEPLOY_SUCCESS"
+echo " Commit: $DEPLOY_TAG"
+echo "=================================="
