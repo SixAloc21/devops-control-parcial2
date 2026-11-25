@@ -14,10 +14,13 @@ permissions:
   contents: read
 
 jobs:
-  pruebas-automatizadas:
-    name: Build y 40 pruebas Playwright
-    runs-on: ubuntu-latest
 
+  # ==========================================
+  # JOB 1 - PRUEBAS AUTOMATIZADAS
+  # ==========================================
+  pruebas-automatizadas:
+    name: Tests and Validation
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     env:
@@ -25,11 +28,9 @@ jobs:
       TEST_JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
 
     steps:
-      # 1. Descargar el repositorio
       - name: Descargar código
         uses: actions/checkout@v7
 
-      # 2. Configurar Node.js
       - name: Configurar Node.js
         uses: actions/setup-node@v7
         with:
@@ -39,7 +40,6 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
-      # 3. Verificar secreto de testing
       - name: Verificar configuración JWT
         run: |
           if [ -z "$TEST_JWT_SECRET" ]; then
@@ -47,32 +47,26 @@ jobs:
             exit 1
           fi
 
-      # 4. Instalar backend
       - name: Instalar dependencias del backend
         working-directory: backend
         run: npm ci
 
-      # 5. Instalar frontend
       - name: Instalar dependencias del frontend
         working-directory: frontend
         run: npm ci
 
-      # 6. Comprobar compilación React
       - name: Compilar frontend
         working-directory: frontend
         run: npm run build
 
-      # 7. Instalar Chromium y dependencias
       - name: Instalar navegador Playwright
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      # 8. Ejecutar todas las pruebas
       - name: Ejecutar 40 pruebas automatizadas
         working-directory: frontend
         run: npx playwright test
 
-      # 9. Guardar los resultados
       - name: Subir reportes de Playwright
         if: always()
         uses: actions/upload-artifact@v7
@@ -84,12 +78,52 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      # 10. Confirmar éxito
       - name: Confirmar calidad del proyecto
         if: success()
         run: |
           echo "=================================="
           echo " DEVOPS CONTROL - CI EXITOSA"
           echo "=================================="
-          echo "Build y pruebas completados"
-          echo "Proyecto apto para fase de despliegue"
+          echo "40 pruebas Playwright aprobadas"
+          echo "Proyecto apto para construir Docker"
+
+  # ==========================================
+  # JOB 2 - CONSTRUIR IMAGENES DOCKER
+  # ==========================================
+  construir-docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # No se ejecuta si las pruebas fallan
+    needs: pruebas-automatizadas
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v7
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir imagen del backend
+        run: |
+          docker build \
+            -f backend/Dockerfile \
+            -t devops-control-backend:${{ github.sha }} \
+            ./backend
+
+      - name: Construir imagen del frontend
+        run: |
+          docker build \
+            -f frontend/Dockerfile \
+            -t devops-control-frontend:${{ github.sha }} \
+            ./frontend
+
+      - name: Confirmar construcción
+        run: |
+          echo "=================================="
+          echo " DEVOPS CONTROL - DOCKER OK"
+          echo "=================================="
+          docker image ls
+          echo "Ambas imagenes construidas"
+          echo "Commit: ${{ github.sha }}"
